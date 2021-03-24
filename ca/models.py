@@ -1,6 +1,9 @@
+from pathlib import Path
+
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat._der import DERReader, INTEGER
 
 from django.db import models
@@ -31,14 +34,25 @@ class Attestation(models.Model):
     leaf_cert = models.BinaryField('Attestation statement / leaf certificate')
 
     def validate(self):
-        cert = x509.load_der_x509_certificate(self.leaf_cert, default_backend())
-        # TODO check chain from Yubico cert through intermediate to leaf
+        be = default_backend()
+        cert, attn = (x509.load_der_x509_certificate(der, be) for
+                der in [self.leaf_cert, self.intermediate_cert])
+        # src: https://developers.yubico.com/PGP/opgp-attestation-ca.pem
+        root_ca_path = (Path(__file__).parent / 'opgp-attestation-ca.pem')
+        root = x509.load_pem_x509_certificate(root_ca_path.read_bytes(), be)
+        for (issuer, subject) in [(root, attn), (attn, cert)]:
+            issuer.public_key().verify(
+                    subject.signature,
+                    subject.tbs_certificate_bytes,
+                    padding.PKCS1v15(),
+                    subject.signature_hash_algorithm)
         cks, csn = [DERReader(
             cert.extensions.get_extension_for_oid(oid).value.value
             ).read_element(INTEGER).as_integer()
             for oid in [KEY_SOURCE, SERIAL_NO]]
         assert cks == ON_DEVICE
         assert csn == self.yubikey.serial
+
 
 class CA(models.Model):
     signer = models.OneToOneField(Attestation, on_delete=models.PROTECT)
