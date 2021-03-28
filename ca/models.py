@@ -10,6 +10,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat._der import DERReader, INTEGER
 
+from django.conf import settings
 from django.db import models
 
 from django.contrib.auth.models import User
@@ -66,6 +67,18 @@ class CA(models.Model):
     signer = models.OneToOneField(Attestation, on_delete=models.PROTECT)
 
 
+KEY_PARAMS = {
+        "ecdsa-sha2-nistp256": "ss",
+        "ecdsa-sha2-nistp384": "ss",
+        "ecdsa-sha2-nistp521": "ss",
+        "ssh-ed25519": "s",
+        "ssh-rsa": "ii",
+        # DSA is omitted on purpose
+        }
+
+CERT_POSTFIX = "-cert-v01@openssh.com"
+
+
 class Certificate(models.Model):
     issuer = models.ForeignKey(CA, on_delete=models.PROTECT)
     subject = models.ForeignKey(PublicKey, on_delete=models.PROTECT)
@@ -75,12 +88,21 @@ class Certificate(models.Model):
         bio = BytesIO(self.cert)
         subject_type = read_ssh_string(bio).decode()
         _nonce = read_ssh_string(bio)
-        if subject_type.startswith('ecdsa'):
-            curve = read_ssh_string(bio).decode()
-            pubkey = read_ssh_string(bio)
-            pubkey = {"curve": curve, "pubkey": pubkey}
-        else:
-            raise NotImplementedError()
+        if not subject_type.endswith(CERT_POSTFIX):
+            raise ValueError("unsupported cert type: " + repr(subject_type))
+        key_type = subject_type[:-len(CERT_POSTFIX)]
+        pk_components = []
+        pos1 = bio.tell()
+        for key_param in KEY_PARAMS[key_type]:
+            if key_param == 's':
+                pk_components.append(read_ssh_string(bio))
+            elif key_param == 'i':
+                pk_components.append(read_ssh_mpint(bio))
+            else:
+                raise ValueError("unknown key param type: " + repr(key_param))
+        pos2 = bio.tell()
+        pubkey = {"type": key_type, "components": tuple(pk_components),
+                "bytes": self.cert[pos1:pos2]}
         serial = read_struct(bio, '>Q')
         cert_type = read_struct(bio, '>I')
         key_id = read_ssh_string(bio).decode()
@@ -107,11 +129,18 @@ class Certificate(models.Model):
         isigner = self.issuer.signer
         assert parsed['signature_key'] == isigner.pubkey.key
         isigner.verify(parsed['signature'], parsed['tbs'])
-        # TODO check subject pubkey match
-        # TODO check expiration date
-        # TODO check serial
-        # TODO check identity
-        # TODO check limitations
+        sub = self.subject
+        bio = BytesIO(sub.key)
+        pk = parsed['pubkey']
+        assert read_ssh_string(bio).decode() == pk['type']
+        assert bio.read() == pk['bytes']
+        assert parsed['valid_before'] - parsed['valid_after'] < settings.CERT_MAX_DAYS * 60 * 60 * 24
+        assert parsed['serial'] == self.pk
+        if hasattr(sub, 'attestation'):
+            assert [sub.attestation.yubikey.user.email] == parsed['principals']
+        else:
+            raise NotImplementedError # TODO check limitations
+
 
 
 def read_dict(bio):
