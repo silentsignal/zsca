@@ -1,4 +1,8 @@
+from functools import partial
+from io import BytesIO
+from itertools import islice
 from pathlib import Path
+import struct
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -53,6 +57,10 @@ class Attestation(models.Model):
         assert cks == ON_DEVICE
         assert csn == self.yubikey.serial
 
+    def verify(self, signature, data):
+        cert = x509.load_der_x509_certificate(self.leaf_cert, default_backend())
+        cert.public_key().verify(signature['ssh-ed25519'], data)
+
 
 class CA(models.Model):
     signer = models.OneToOneField(Attestation, on_delete=models.PROTECT)
@@ -62,3 +70,77 @@ class Certificate(models.Model):
     issuer = models.ForeignKey(CA, on_delete=models.PROTECT)
     subject = models.ForeignKey(PublicKey, on_delete=models.PROTECT)
     cert = models.BinaryField('Certificate')
+
+    def parse(self):
+        bio = BytesIO(self.cert)
+        subject_type = read_ssh_string(bio).decode()
+        _nonce = read_ssh_string(bio)
+        if subject_type.startswith('ecdsa'):
+            curve = read_ssh_string(bio).decode()
+            pubkey = read_ssh_string(bio)
+            pubkey = {"curve": curve, "pubkey": pubkey}
+        else:
+            raise NotImplementedError()
+        serial = read_struct(bio, '>Q')
+        cert_type = read_struct(bio, '>I')
+        key_id = read_ssh_string(bio).decode()
+        principals = [p.decode() for p in read_ssh_string_list(bio)]
+        valid_after = read_struct(bio, '>Q')
+        valid_before = read_struct(bio, '>Q')
+        crit_opts =  read_dict(bio)
+        extensions = read_dict(bio)
+        reserved = read_ssh_string(bio)
+        signature_key = read_ssh_string(bio)
+        pos = bio.tell()
+        signature = read_dict(bio)
+        assert bio.read() == b'' # we're at the end
+        tbs = self.cert[:pos]
+        return {"subject_type": subject_type, "pubkey": pubkey,
+                "serial": serial, "cert_type": cert_type, "key_id": key_id,
+                "principals": principals, "crit_opts": crit_opts,
+                "valid_after": valid_after, "valid_before": valid_before,
+                "extensions": extensions, "reserved": reserved, "tbs": tbs,
+                "signature_key": signature_key, "signature": signature}
+
+    def validate(self):
+        parsed = self.parse()
+        isigner = self.issuer.signer
+        assert parsed['signature_key'] == isigner.pubkey.key
+        isigner.verify(parsed['signature'], parsed['tbs'])
+        # TODO check subject pubkey match
+        # TODO check expiration date
+        # TODO check serial
+        # TODO check identity
+        # TODO check limitations
+
+
+def read_dict(bio):
+    return {k.decode(): v for k, v in chunked(read_ssh_string_list(bio), 2)}
+
+def read_ssh_string_list(bio):
+    container = read_ssh_string(bio)
+    return list(iter(partial(try_read_ssh_string, BytesIO(container)), None))
+
+def try_read_ssh_string(bio):
+    try:
+        return bio.read(read_struct(bio, '>I'))
+    except struct.error:
+        return None
+
+def read_ssh_string(bio):
+    return bio.read(read_struct(bio, '>I'))
+
+def read_struct(bio, fmt):
+    (value,) = struct.unpack(fmt, bio.read(struct.calcsize(fmt)))
+    return value
+
+# src: https://github.com/more-itertools/more-itertools, license: MIT
+def chunked(iterable, n):
+	iterator = iter(partial(take, n, iter(iterable)), [])
+	for chunk in iterator:
+		if len(chunk) != n:
+			raise ValueError('iterable is not divisible by n.')
+		yield chunk
+
+def take(n, iterable):
+    return list(islice(iterable, n))
