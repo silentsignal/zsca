@@ -1,3 +1,4 @@
+from base64 import b64decode
 from functools import partial
 from io import BytesIO
 from itertools import islice
@@ -67,6 +68,10 @@ class Attestation(models.Model):
         else:
             csn = DERReader(psn.value.value).read_element(INTEGER).as_integer()
         assert csn == self.yubikey.serial
+        ossh_pubkey = b64decode(cert.public_key().public_bytes(
+                format=serialization.PublicFormat.OpenSSH,
+                encoding=serialization.Encoding.OpenSSH).split(b' ', 1)[-1])
+        assert ossh_pubkey == self.pubkey.key
 
     def verify(self, signature, data):
         cert = x509.load_der_x509_certificate(self.leaf_cert, default_backend())
