@@ -42,9 +42,12 @@ class Attestation(models.Model):
         be = default_backend()
         cert, attn = (x509.load_der_x509_certificate(der, be) for
                 der in [self.leaf_cert, self.intermediate_cert])
-        # src: https://developers.yubico.com/PGP/opgp-attestation-ca.pem
-        root_ca_path = (Path(__file__).parent / 'opgp-attestation-ca.pem')
-        root = x509.load_pem_x509_certificate(root_ca_path.read_bytes(), be)
+        for certfile in (Path(__file__).parent / 'attestation-ca-certs').glob('*.pem'):
+            root = x509.load_pem_x509_certificate(certfile.read_bytes(), be)
+            if root.subject == attn.issuer:
+                break
+        else:
+            raise ValueError('Unknown CA')
         for (issuer, subject) in [(root, attn), (attn, cert)]:
             issuer.public_key().verify(
                     subject.signature,
