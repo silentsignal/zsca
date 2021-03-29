@@ -16,8 +16,10 @@ from django.db import models
 from django.contrib.auth.models import User
 
 # src: https://developers.yubico.com/PGP/Attestation.html
-KEY_SOURCE  = x509.ObjectIdentifier("1.3.6.1.4.1.41482.5.2")
-SERIAL_NO   = x509.ObjectIdentifier("1.3.6.1.4.1.41482.5.7")
+PGP_KEY_SOURCE = x509.ObjectIdentifier("1.3.6.1.4.1.41482.5.2")
+PGP_SERIAL_NO  = x509.ObjectIdentifier("1.3.6.1.4.1.41482.5.7")
+# src: https://developers.yubico.com/PIV/Introduction/PIV_attestation.html
+PIV_SERIAL_NO  = x509.ObjectIdentifier("1.3.6.1.4.1.41482.3.7")
 ON_DEVICE = 0x01
 
 class YubiKey(models.Model):
@@ -54,11 +56,16 @@ class Attestation(models.Model):
                     subject.tbs_certificate_bytes,
                     padding.PKCS1v15(),
                     subject.signature_hash_algorithm)
-        cks, csn = [DERReader(
-            cert.extensions.get_extension_for_oid(oid).value.value
-            ).read_element(INTEGER).as_integer()
-            for oid in [KEY_SOURCE, SERIAL_NO]]
-        assert cks == ON_DEVICE
+        try:
+            psn = cert.extensions.get_extension_for_oid(PIV_SERIAL_NO)
+        except x509.ExtensionNotFound:
+            cks, csn = [DERReader(
+                cert.extensions.get_extension_for_oid(oid).value.value
+                ).read_element(INTEGER).as_integer()
+                for oid in [PGP_KEY_SOURCE, PGP_SERIAL_NO]]
+            assert cks == ON_DEVICE
+        else:
+            csn = DERReader(psn.value.value).read_element(INTEGER).as_integer()
         assert csn == self.yubikey.serial
 
     def verify(self, signature, data):
