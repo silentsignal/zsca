@@ -67,13 +67,13 @@ class Attestation(models.Model):
             assert cks == ON_DEVICE, repr(self) + " was imported into the YubiKey"
         else:
             csn = DERReader(psn.value.value).read_element(INTEGER).as_integer()
-        assert (csn == self.yubikey.serial,
+        assert csn == self.yubikey.serial, (
                 "serial attested by {0!r} ({1!r}) doesn't match YubiKey {2!r}".format(
                     self, csn, self.yubikey))
         ossh_pubkey = b64decode(cert.public_key().public_bytes(
                 format=serialization.PublicFormat.OpenSSH,
                 encoding=serialization.Encoding.OpenSSH).split(b' ', 1)[-1])
-        assert (ossh_pubkey == self.pubkey.key, ("public key attested by {0!r} "
+        assert ossh_pubkey == self.pubkey.key, (("public key attested by {0!r} "
             "doesn't match linked public key {1!r}").format(self, self.pubkey))
 
     def verify(self, signature, data):
@@ -90,7 +90,7 @@ class CA(models.Model):
         for cert in self.certificate_set.all():
             cert.validate()
             certs.append(cert.cert)
-        assert (len(set(certs)) == len(certs),
+        assert len(set(certs)) == len(certs), (
                 "not all certificates signed by {0!r} are unique".format(self))
 
 
@@ -136,7 +136,7 @@ class Certificate(models.Model):
         signature_key = read_ssh_string(bio)
         pos = bio.tell()
         signature = read_dict(bio)
-        assert (bio.read() == b'', repr(self) + " has trailing bytes")
+        assert bio.read() == b'', repr(self) + " has trailing bytes"
         tbs = self.cert[:pos]
         return {"subject_type": subject_type, "pubkey": pubkey,
                 "serial": serial, "cert_type": cert_type, "key_id": key_id,
@@ -149,15 +149,15 @@ class Certificate(models.Model):
     def validate(self):
         parsed = self.parse()
         isigner = self.issuer.signer
-        assert (parsed['signature_key'] == isigner.pubkey.key,
+        assert parsed['signature_key'] == isigner.pubkey.key, (
                 "{0!r} contains a different issuer key, not {1!r}".format(self, isigner))
         isigner.verify(parsed['signature'], parsed['tbs'])
         sub = self.subject
         bio = BytesIO(sub.key)
         pk = parsed['pubkey']
-        assert (read_ssh_string(bio).decode() == pk['type'],
+        assert read_ssh_string(bio).decode() == pk['type'], (
                 "{0!r} has a different keytype than {1!r}".format(self, sub))
-        assert (bio.read() == pk['bytes'],
+        assert bio.read() == pk['bytes'], (
                 "{0!r} has a different key than {1!r}".format(self,sub))
         max_seconds = settings.CERT_MAX_DAYS * 60 * 60 * 24
         valid_seconds = parsed['valid_before'] - parsed['valid_after']
@@ -167,16 +167,16 @@ class Certificate(models.Model):
             att.validate()
             pp = parsed['principals']
             email = att.yubikey.user.email
-            assert ([email] == pp,
+            assert [email] == pp, (
                     "{0!r} has incorrect principals: {1!r}".format(self, pp))
             kid = parsed['key_id']
-            assert (email in kid, ("{0!r} doesn't contain the email address {1!r} "
+            assert email in kid, (("{0!r} doesn't contain the email address {1!r} "
                 "in the key_id {2!r}").format(self, email, kid))
             serial = att.yubikey.serial
-            assert (str(serial) in kid, ("{0!r} doesn't contain the YubiKey "
+            assert str(serial) in kid, (("{0!r} doesn't contain the YubiKey "
                 "serial ({1}) in the key_id {2!r}").format(self, serial, kid))
         else:
-            assert ('force-command' in parsed['crit_opts'],
+            assert 'force-command' in parsed['crit_opts'], (
                     repr(self) + " had no force-command option set")
 
 
