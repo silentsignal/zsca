@@ -83,8 +83,12 @@ class CA(models.Model):
 
     def validate(self):
         self.signer.validate()
+        certs = []
         for cert in self.certificate_set.all():
             cert.validate()
+            certs.append(cert.cert)
+        assert (len(set(certs)) == len(certs),
+                "not all certificates signed by {0!r} are unique".format(self))
 
 
 KEY_PARAMS = {
