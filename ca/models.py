@@ -107,9 +107,10 @@ class Certificate(models.Model):
             raise ValueError("unsupported cert type: " + repr(subject_type))
         key_type = subject_type[:-len(CERT_POSTFIX)]
         pos1 = bio.tell()
-        pk_components = [read_ssh_string(bio) for _ in range(KEY_PARAMS[key_type])]
+        pk_components = tuple(read_ssh_string(bio)
+                for _ in range(KEY_PARAMS[key_type]))
         pos2 = bio.tell()
-        pubkey = {"type": key_type, "components": tuple(pk_components),
+        pubkey = {"type": key_type, "components": pk_components,
                 "bytes": self.cert[pos1:pos2]}
         serial = read_struct(bio, '>Q')
         cert_type = read_struct(bio, '>I')
