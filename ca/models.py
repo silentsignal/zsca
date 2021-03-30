@@ -83,11 +83,11 @@ class CA(models.Model):
 
 
 KEY_PARAMS = {
-        "ecdsa-sha2-nistp256": "ss",
-        "ecdsa-sha2-nistp384": "ss",
-        "ecdsa-sha2-nistp521": "ss",
-        "ssh-ed25519": "s",
-        "ssh-rsa": "ii",
+        "ecdsa-sha2-nistp256": 2,
+        "ecdsa-sha2-nistp384": 2,
+        "ecdsa-sha2-nistp521": 2,
+        "ssh-ed25519": 1,
+        "ssh-rsa": 2,
         # DSA is omitted on purpose
         }
 
@@ -106,15 +106,8 @@ class Certificate(models.Model):
         if not subject_type.endswith(CERT_POSTFIX):
             raise ValueError("unsupported cert type: " + repr(subject_type))
         key_type = subject_type[:-len(CERT_POSTFIX)]
-        pk_components = []
         pos1 = bio.tell()
-        for key_param in KEY_PARAMS[key_type]:
-            if key_param == 's':
-                pk_components.append(read_ssh_string(bio))
-            elif key_param == 'i':
-                pk_components.append(read_ssh_mpint(bio))
-            else:
-                raise ValueError("unknown key param type: " + repr(key_param))
+        pk_components = [read_ssh_string(bio) for _ in range(KEY_PARAMS[key_type])]
         pos2 = bio.tell()
         pubkey = {"type": key_type, "components": tuple(pk_components),
                 "bytes": self.cert[pos1:pos2]}
