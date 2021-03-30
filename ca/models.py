@@ -150,7 +150,6 @@ class Certificate(models.Model):
         assert read_ssh_string(bio).decode() == pk['type']
         assert bio.read() == pk['bytes']
         assert parsed['valid_before'] - parsed['valid_after'] < settings.CERT_MAX_DAYS * 60 * 60 * 24
-        assert parsed['serial'] == self.pk
         if hasattr(sub, 'attestation'):
             assert [sub.attestation.yubikey.user.email] == parsed['principals']
         else:
