@@ -81,6 +81,11 @@ class Attestation(models.Model):
 class CA(models.Model):
     signer = models.OneToOneField(Attestation, on_delete=models.PROTECT)
 
+    def validate(self):
+        self.signer.validate()
+        for cert in self.certificate_set.all():
+            cert.validate()
+
 
 KEY_PARAMS = {
         "ecdsa-sha2-nistp256": 2,
@@ -146,7 +151,10 @@ class Certificate(models.Model):
         max_seconds = settings.CERT_MAX_DAYS * 60 * 60 * 24
         assert parsed['valid_before'] - parsed['valid_after'] < max_seconds
         if hasattr(sub, 'attestation'):
-            assert [sub.attestation.yubikey.user.email] == parsed['principals']
+            att = sub.attestation
+            att.validate()
+            assert [att.yubikey.user.email] == parsed['principals']
+            # TODO check email and yubikey ID in identity
         else:
             assert 'force-command' in parsed['crit_opts']
 
