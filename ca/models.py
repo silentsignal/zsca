@@ -153,8 +153,7 @@ class Certificate(models.Model):
         if hasattr(sub, 'attestation'):
             assert [sub.attestation.yubikey.user.email] == parsed['principals']
         else:
-            raise NotImplementedError # TODO check limitations
-
+            assert 'force-command' in parsed['crit_opts']
 
 
 def read_dict(bio):
