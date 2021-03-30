@@ -1,5 +1,6 @@
 from base64 import b64decode, b64encode
 from functools import partial
+from hashlib import sha256
 from io import BytesIO
 from itertools import islice
 from pathlib import Path
@@ -39,6 +40,10 @@ class PublicKey(models.Model):
             read_ssh_string(BytesIO(self.key)),
             b64encode(self.key)
             ]).decode()
+
+    def __str__(self):
+        h = b64encode(sha256(self.key).digest()).decode()
+        return 'SHA256:{0}...{1}'.format(h[:3], h[-3:])
 
 
 class Attestation(models.Model):
@@ -184,6 +189,11 @@ class Certificate(models.Model):
         else:
             assert 'force-command' in parsed['crit_opts'], (
                     repr(self) + " had no force-command option set")
+
+    def __str__(self):
+        parsed = self.parse()
+        return "{0} signed by {1}, serial {2}".format(self.subject,
+                self.issuer.signer.pubkey, parsed['serial'])
 
 
 def read_dict(bio):
