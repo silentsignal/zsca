@@ -64,14 +64,17 @@ class Attestation(models.Model):
                 cert.extensions.get_extension_for_oid(oid).value.value
                 ).read_element(INTEGER).as_integer()
                 for oid in [PGP_KEY_SOURCE, PGP_SERIAL_NO]]
-            assert cks == ON_DEVICE
+            assert cks == ON_DEVICE, repr(self) + " was imported into the YubiKey"
         else:
             csn = DERReader(psn.value.value).read_element(INTEGER).as_integer()
-        assert csn == self.yubikey.serial
+        assert (csn == self.yubikey.serial,
+                "serial attested by {0!r} ({1!r}) doesn't match YubiKey {2!r}".format(
+                    self, csn, self.yubikey))
         ossh_pubkey = b64decode(cert.public_key().public_bytes(
                 format=serialization.PublicFormat.OpenSSH,
                 encoding=serialization.Encoding.OpenSSH).split(b' ', 1)[-1])
-        assert ossh_pubkey == self.pubkey.key
+        assert (ossh_pubkey == self.pubkey.key, ("public key attested by {0!r} "
+            "doesn't match linked public key {1!r}").format(self, self.pubkey))
 
     def verify(self, signature, data):
         cert = x509.load_der_x509_certificate(self.leaf_cert, default_backend())
@@ -133,34 +136,43 @@ class Certificate(models.Model):
         signature_key = read_ssh_string(bio)
         pos = bio.tell()
         signature = read_dict(bio)
-        assert bio.read() == b'' # we're at the end
+        assert (bio.read() == b'', repr(self) + " has trailing bytes")
         tbs = self.cert[:pos]
         return {"subject_type": subject_type, "pubkey": pubkey,
                 "serial": serial, "cert_type": cert_type, "key_id": key_id,
                 "principals": principals, "crit_opts": crit_opts,
                 "valid_after": valid_after, "valid_before": valid_before,
                 "extensions": extensions, "reserved": reserved, "tbs": tbs,
-                "signature_key": signature_key, "signature": signature}
+                "signature_key": signature_key, "signature": signature,
+                }
 
     def validate(self):
         parsed = self.parse()
         isigner = self.issuer.signer
-        assert parsed['signature_key'] == isigner.pubkey.key
+        assert (parsed['signature_key'] == isigner.pubkey.key,
+                "{0!r} contains a different issuer key, not {1!r}".format(self, isigner))
         isigner.verify(parsed['signature'], parsed['tbs'])
         sub = self.subject
         bio = BytesIO(sub.key)
         pk = parsed['pubkey']
-        assert read_ssh_string(bio).decode() == pk['type']
-        assert bio.read() == pk['bytes']
+        assert (read_ssh_string(bio).decode() == pk['type'],
+                "{0!r} has a different keytype than {1!r}".format(self, sub))
+        assert (bio.read() == pk['bytes'],
+                "{0!r} has a different key than {1!r}".format(self,sub))
         max_seconds = settings.CERT_MAX_DAYS * 60 * 60 * 24
-        assert parsed['valid_before'] - parsed['valid_after'] < max_seconds
+        valid_seconds = parsed['valid_before'] - parsed['valid_after']
+        assert valid_seconds < max_seconds, repr(self) + " is valid for too long"
         if hasattr(sub, 'attestation'):
             att = sub.attestation
             att.validate()
-            assert [att.yubikey.user.email] == parsed['principals']
+            pp = parsed['principals']
+            email = att.yubikey.user.email
+            assert ([email] == pp,
+                    "{0!r} has incorrect principals: {1!r}".format(self, pp))
             # TODO check email and yubikey ID in identity
         else:
-            assert 'force-command' in parsed['crit_opts']
+            assert ('force-command' in parsed['crit_opts'],
+                    repr(self) + " had no force-command option set")
 
 
 def read_dict(bio):
