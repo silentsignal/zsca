@@ -169,7 +169,12 @@ class Certificate(models.Model):
             email = att.yubikey.user.email
             assert ([email] == pp,
                     "{0!r} has incorrect principals: {1!r}".format(self, pp))
-            # TODO check email and yubikey ID in identity
+            kid = parsed['key_id']
+            assert (email in kid, ("{0!r} doesn't contain the email address {1!r} "
+                "in the key_id {2!r}").format(self, email, kid))
+            serial = att.yubikey.serial
+            assert (str(serial) in kid, ("{0!r} doesn't contain the YubiKey "
+                "serial ({1}) in the key_id {2!r}").format(self, serial, kid))
         else:
             assert ('force-command' in parsed['crit_opts'],
                     repr(self) + " had no force-command option set")
