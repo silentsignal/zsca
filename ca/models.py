@@ -1,4 +1,4 @@
-from base64 import b64decode
+from base64 import b64decode, b64encode
 from functools import partial
 from io import BytesIO
 from itertools import islice
@@ -33,6 +33,12 @@ class YubiKey(models.Model):
 
 class PublicKey(models.Model):
     key = models.BinaryField('Public key')
+
+    def ssh_string(self):
+        return b" ".join([
+            read_ssh_string(BytesIO(self.key)),
+            b64encode(self.key)
+            ]).decode()
 
 
 class Attestation(models.Model):
