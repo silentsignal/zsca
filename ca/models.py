@@ -68,16 +68,7 @@ class Attestation(models.Model):
                     subject.tbs_certificate_bytes,
                     padding.PKCS1v15(),
                     subject.signature_hash_algorithm)
-        try:
-            psn = cert.extensions.get_extension_for_oid(PIV_SERIAL_NO)
-        except x509.ExtensionNotFound:
-            cks, csn = [DERReader(
-                cert.extensions.get_extension_for_oid(oid).value.value
-                ).read_element(INTEGER).as_integer()
-                for oid in [PGP_KEY_SOURCE, PGP_SERIAL_NO]]
-            assert cks == ON_DEVICE, repr(self) + " was imported into the YubiKey"
-        else:
-            csn = DERReader(psn.value.value).read_element(INTEGER).as_integer()
+        csn = read_yubikey_serial(cert)
         assert csn == self.yubikey.serial, (
                 "serial attested by {0!r} ({1!r}) doesn't match YubiKey {2!r}".format(
                     self, csn, self.yubikey))
@@ -90,6 +81,20 @@ class Attestation(models.Model):
     def verify(self, signature, data):
         cert = x509.load_der_x509_certificate(self.leaf_cert, default_backend())
         cert.public_key().verify(signature['ssh-ed25519'], data)
+
+
+def read_yubikey_serial(cert):
+    try:
+        psn = cert.extensions.get_extension_for_oid(PIV_SERIAL_NO)
+    except x509.ExtensionNotFound:
+        cks, csn = [DERReader(
+            cert.extensions.get_extension_for_oid(oid).value.value
+            ).read_element(INTEGER).as_integer()
+            for oid in [PGP_KEY_SOURCE, PGP_SERIAL_NO]]
+        assert cks == ON_DEVICE, repr(self) + " was imported into the YubiKey"
+    else:
+        csn = DERReader(psn.value.value).read_element(INTEGER).as_integer()
+    return csn
 
 
 class CA(models.Model):
