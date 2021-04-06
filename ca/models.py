@@ -175,7 +175,7 @@ class Certificate(models.Model):
                 "{0!r} has a different keytype than {1!r}".format(self, sub))
         assert bio.read() == pk['bytes'], (
                 "{0!r} has a different key than {1!r}".format(self,sub))
-        max_seconds = settings.CERT_MAX_DAYS * 60 * 60 * 24
+        max_seconds = settings.CERT_MAX_DAYS * 60 * 60 * 24 + 120 # +2 minutes
         valid_seconds = parsed['valid_before'] - parsed['valid_after']
         assert valid_seconds < max_seconds, repr(self) + " is valid for too long"
         if hasattr(sub, 'attestation'):
