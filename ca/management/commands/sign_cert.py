@@ -70,12 +70,7 @@ class Command(BaseCommand):
         if len(pk) != 37 or not pk.startswith(OPGP_ED25519_PREFIX):
             raise ValueError('Only Ed25519 keys are supported')
         ed25519bytes = pk[len(OPGP_ED25519_PREFIX):]
-        ssh_bytes = b''.join((
-            struct.pack('>I', len(SSH_ED25519)),
-            SSH_ED25519,
-            struct.pack('>I', len(ed25519bytes)),
-            ed25519bytes,
-            ))
+        ssh_bytes = serialize_openssh(SSH_ED25519, ed25519bytes)
         ca = CA.objects.get(signer__pubkey__key=ssh_bytes)
         tmpdir = Path(mkdtemp(prefix='zsca-signcert'))
         tmpfiles = {}
@@ -101,13 +96,8 @@ class Command(BaseCommand):
             msg = connection.recv(struct.unpack('>I', msglen)[0])
             cmd = msg[0]
             if cmd == SSH_AGENTC_REQUEST_IDENTITIES:
-                response = b''.join((
-                        bytes([SSH_AGENT_IDENTITIES_ANSWER]),
-                        struct.pack('>I', 1),
-                        struct.pack('>I', len(ssh_bytes)),
-                        ssh_bytes,
-                        struct.pack('>I', 0), # no comment
-                        ))
+                response = serialize_openssh([(ssh_bytes, b'')],
+                        prefix=SSH_AGENT_IDENTITIES_ANSWER)
                 connection.sendall(struct.pack('>I', len(response)) + response)
             elif cmd == SSH_AGENTC_SIGN_REQUEST:
                 (keylen,) = struct.unpack('>I', msg[1:5])
@@ -115,19 +105,24 @@ class Command(BaseCommand):
                 data = msg[(1+4+keylen+4):][:datalen]
                 assert 1 + 4 + datalen + 4 + keylen + 4 == len(msg)
                 ed25519sig = mydevice.sign(data)
-                signature = b''.join((
-                    struct.pack('>I', len(SSH_ED25519)),
-                    SSH_ED25519,
-                    struct.pack('>I', len(ed25519sig)),
-                    ed25519sig,
-                    ))
-                response = b''.join((
-                        bytes([SSH_AGENT_SIGN_RESPONSE]),
-                        struct.pack('>I', len(signature)),
-                        signature,
-                        ))
+                signature = serialize_openssh(SSH_ED25519, ed25519sig)
+                response = serialize_openssh(signature, prefix=SSH_AGENT_SIGN_RESPONSE)
                 connection.sendall(struct.pack('>I', len(response)) + response)
             else:
                 raise ValueError('Unsupported command {0}'.format(cmd))
         cert = b64decode((tmpdir / 'subject-cert.pub').read_bytes().split(b" ")[1])
         ca.certificate_set.create(subject=subject_pk, cert=cert).validate()
+
+def serialize_openssh(*args, prefix=None):
+    payload = b''.join(serialize_openssh_value(arg) for arg in args)
+    return payload if prefix is None else bytes([prefix]) + payload
+
+def serialize_openssh_value(value):
+    if isinstance(value, list):
+        return serialize_openssh(len(value), *value)
+    if isinstance(value, tuple):
+        return serialize_openssh(*value)
+    elif isinstance(value, int):
+        return struct.pack('>I', value)
+    elif isinstance(value, bytes):
+        return serialize_openssh_value(len(value)) + value
