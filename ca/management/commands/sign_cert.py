@@ -35,8 +35,8 @@ class Command(BaseCommand):
         parser.add_argument('-O', dest='ssh_keygen_options',
                 metavar='ssh-keygen_option', action='append')
 
-    def handle(self, identity, principal, ssh_keygen_options, *args, **options):
-        subject_pk = PublicKey.objects.get(pk=options['pubkey_id'])
+    def handle(self, pubkey_id, identity, principal, ssh_keygen_options, *args, **options):
+        subject_pk = PublicKey.objects.get(pk=pubkey_id)
         force_cmd = False
         cmdline_options = []
         for opt in ssh_keygen_options or []:
