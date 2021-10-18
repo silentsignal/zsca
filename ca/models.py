@@ -222,6 +222,11 @@ KEY_PARAMS = {
         }
 
 CERT_POSTFIX = "-cert-v01@openssh.com"
+FORCE_COMMAND = 'force-command'
+VERIFY_REQUIRED = 'verify-required'
+SOURCE_ADDRESS = 'source-address'
+NO_TOUCH_REQUIRED = 'no-touch-required'
+SSH_PERMISSIONS = ['X11-forwarding', 'agent-forwarding', 'port-forwarding', 'pty', 'user-rc']
 
 
 class Certificate(models.Model):
@@ -264,6 +269,16 @@ class Certificate(models.Model):
                 "signature_key": signature_key, "signature": signature,
                 }
 
+    def renew(self):
+        cert = self.parse()
+        pk = self.subject
+        if hasattr(pk, 'attestation'):
+            identity = principal = None
+        else:
+            identity = cert['key_id']
+            principal = ','.join(cert['principals'])
+        pk.sign_with_ca(identity, principal, ssh_keygen_options(cert))
+
     def validate(self):
         parsed = self.parse()
         isigner = self.issuer.signer
@@ -304,6 +319,22 @@ class Certificate(models.Model):
         parsed = self.parse()
         return "{0} signed by {1}, serial {2}".format(self.subject,
                 self.issuer.signer.pubkey, parsed['serial'])
+
+def ssh_keygen_options(cert):
+    crit_opts = cert['crit_opts']
+    for key in [FORCE_COMMAND, SOURCE_ADDRESS]:
+        value = crit_opts.get(key)
+        if value:
+            yield '='.join((key, read_ssh_string(BytesIO(value)).decode()))
+    if VERIFY_REQUIRED in crit_opts:
+        yield VERIFY_REQUIRED
+
+    extensions = cert['extensions']
+    for perm in SSH_PERMISSIONS:
+        if 'permit-' + perm not in extensions:
+            yield 'no-' + perm.lower() # X11 -> x11
+    if NO_TOUCH_REQUIRED in extensions:
+        yield NO_TOUCH_REQUIRED
 
 def format_ssh_key(serialized):
     return b" ".join([
