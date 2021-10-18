@@ -297,6 +297,9 @@ class Certificate(models.Model):
             assert 'force-command' in parsed['crit_opts'], (
                     repr(self) + " had no force-command option set")
 
+    def ssh_string(self):
+        return format_ssh_key(self.cert)
+
     def __str__(self):
         parsed = self.parse()
         return "{0} signed by {1}, serial {2}".format(self.subject,
