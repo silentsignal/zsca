@@ -50,10 +50,7 @@ class PublicKey(models.Model):
     key = models.BinaryField('Public key')
 
     def ssh_string(self):
-        return b" ".join([
-            read_ssh_string(BytesIO(self.key)),
-            b64encode(self.key)
-            ]).decode()
+        return format_ssh_key(self.key)
 
     def __str__(self):
         h = b64encode(sha256(self.key).digest()).decode()
@@ -305,6 +302,11 @@ class Certificate(models.Model):
         return "{0} signed by {1}, serial {2}".format(self.subject,
                 self.issuer.signer.pubkey, parsed['serial'])
 
+def format_ssh_key(serialized):
+    return b" ".join([
+        read_ssh_string(BytesIO(serialized)),
+        b64encode(serialized)
+        ]).decode()
 
 def read_dict(bio):
     return {k.decode(): v for k, v in chunked(read_ssh_string_list(bio), 2)}
