@@ -4,13 +4,16 @@ from hashlib import sha256
 from io import BytesIO
 from itertools import islice
 from pathlib import Path
-import struct
+from subprocess import Popen
+from tempfile import mkdtemp
+import getpass, socket, struct
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat._der import DERReader, INTEGER
+import OpenPGPpy
 
 from django.conf import settings
 from django.db import models
@@ -23,6 +26,17 @@ PGP_SERIAL_NO  = x509.ObjectIdentifier("1.3.6.1.4.1.41482.5.7")
 # src: https://developers.yubico.com/PIV/Introduction/PIV_attestation.html
 PIV_SERIAL_NO  = x509.ObjectIdentifier("1.3.6.1.4.1.41482.3.7")
 ON_DEVICE = 0x01
+
+SSH_ED25519 = b'ssh-ed25519'
+SIGNING_KEY = "B600"
+SECURITY_SUPPORT_TEMPLATE = '007A'
+OPGP_ED25519_PREFIX = b"\x7f\x49\x22\x86\x20"
+OPGP_SIG_CTR_PREFIX = b"z\x05\x93\x03"
+
+SSH_AGENTC_REQUEST_IDENTITIES = 11
+SSH_AGENT_IDENTITIES_ANSWER = 12
+SSH_AGENTC_SIGN_REQUEST = 13
+SSH_AGENT_SIGN_RESPONSE = 14
 
 class YubiKey(models.Model):
     serial = models.PositiveIntegerField('Serial number', primary_key=True)
@@ -44,6 +58,97 @@ class PublicKey(models.Model):
     def __str__(self):
         h = b64encode(sha256(self.key).digest()).decode()
         return 'SHA256:{0}...{1}'.format(h[:3], h[-3:])
+
+    def sign_with_ca(self, identity, principal, ssh_keygen_options):
+        force_cmd = False
+        cmdline_options = []
+        for opt in ssh_keygen_options or []:
+            cmdline_options.append('-O')
+            cmdline_options.append(opt)
+            if opt.startswith('force-command='):
+                force_cmd = True
+        if hasattr(self, 'attestation'):
+            if identity:
+                raise ValueError("identity doesn't make sense for attested keys, would be overwritten")
+            if principal:
+                raise ValueError("principal doesn't make sense for attested keys, would be overwritten")
+            yk = self.attestation.yubikey
+            email = yk.user.email
+            principal = email
+            identity = '{0} YK#{1}'.format(email, yk.serial)
+        elif not identity:
+            raise ValueError('identity is mandatory for unattested keys')
+        elif not principal:
+            raise ValueError('principal is mandatory for unattested keys')
+        elif not force_cmd:
+            raise ValueError('Unattested keys must have forced command')
+        mydevice = OpenPGPpy.OpenPGPcard()
+        sigctr_blob = bytes(mydevice.get_data(SECURITY_SUPPORT_TEMPLATE))
+        if len(sigctr_blob) != 7 or not sigctr_blob.startswith(OPGP_SIG_CTR_PREFIX):
+            raise ValueError('Invalid reply to signature counter request: ' +
+                    repr(sigctr_blob))
+        (counter,) = struct.unpack(">I", b"\0" + sigctr_blob[len(OPGP_SIG_CTR_PREFIX):])
+        mydevice.verify_pin(1, getpass.getpass())
+        pk = mydevice.get_public_key(SIGNING_KEY)
+        if len(pk) != 37 or not pk.startswith(OPGP_ED25519_PREFIX):
+            raise ValueError('Only Ed25519 keys are supported')
+        ed25519bytes = pk[len(OPGP_ED25519_PREFIX):]
+        ssh_bytes = serialize_openssh(SSH_ED25519, ed25519bytes)
+        ca = CA.objects.get(signer__pubkey__key=ssh_bytes)
+        tmpdir = Path(mkdtemp(prefix='zsca-signcert'))
+        tmpfiles = {}
+        for name, source in [('issuer', ca.signer.pubkey), ('subject', self)]:
+            tmpfile = tmpdir / (name + '.pub')
+            tmpfile.write_text(source.ssh_string())
+            tmpfiles[name] = tmpfile
+        ssh_auth_sock = str(tmpdir / 'ssh.sock')
+        env = {'SSH_AUTH_SOCK': ssh_auth_sock}
+        cmdline = ['ssh-keygen', '-Us', str(tmpfiles['issuer']),
+            '-V', '+{0}d'.format(settings.CERT_MAX_DAYS), '-z', str(counter),
+            '-I', identity, '-n', principal] + cmdline_options
+        cmdline.append(str(tmpfiles['subject']))
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.bind(ssh_auth_sock)
+        sock.listen(1)
+        keygen = Popen(cmdline, env=env)
+        connection, client_address = sock.accept()
+        while keygen.poll() is None:
+            msglen = connection.recv(4)
+            if not msglen:
+                continue
+            msg = connection.recv(struct.unpack('>I', msglen)[0])
+            cmd = msg[0]
+            if cmd == SSH_AGENTC_REQUEST_IDENTITIES:
+                response = serialize_openssh([(ssh_bytes, b'')],
+                        prefix=SSH_AGENT_IDENTITIES_ANSWER)
+                connection.sendall(struct.pack('>I', len(response)) + response)
+            elif cmd == SSH_AGENTC_SIGN_REQUEST:
+                (keylen,) = struct.unpack('>I', msg[1:5])
+                (datalen,) = struct.unpack('>I', msg[(1+4+keylen):][:4])
+                data = msg[(1+4+keylen+4):][:datalen]
+                assert 1 + 4 + datalen + 4 + keylen + 4 == len(msg)
+                ed25519sig = mydevice.sign(data)
+                signature = serialize_openssh(SSH_ED25519, ed25519sig)
+                response = serialize_openssh(signature, prefix=SSH_AGENT_SIGN_RESPONSE)
+                connection.sendall(struct.pack('>I', len(response)) + response)
+            else:
+                raise ValueError('Unsupported command {0}'.format(cmd))
+        cert = b64decode((tmpdir / 'subject-cert.pub').read_bytes().split(b" ")[1])
+        ca.certificate_set.create(subject=self, cert=cert).validate()
+
+def serialize_openssh(*args, prefix=None):
+    payload = b''.join(serialize_openssh_value(arg) for arg in args)
+    return payload if prefix is None else bytes([prefix]) + payload
+
+def serialize_openssh_value(value):
+    if isinstance(value, list):
+        return serialize_openssh(len(value), *value)
+    if isinstance(value, tuple):
+        return serialize_openssh(*value)
+    elif isinstance(value, int):
+        return struct.pack('>I', value)
+    elif isinstance(value, bytes):
+        return serialize_openssh_value(len(value)) + value
 
 
 class Attestation(models.Model):
