@@ -273,7 +273,7 @@ class Certificate(models.Model):
                 "signature_key": signature_key, "signature": signature,
                 }
 
-    def renew(self):
+    def renew(self, device=None):
         cert = self.parse()
         pk = self.subject
         if hasattr(pk, 'attestation'):
@@ -281,7 +281,7 @@ class Certificate(models.Model):
         else:
             identity = cert['key_id']
             principal = ','.join(cert['principals'])
-        pk.sign_with_ca(identity, principal, ssh_keygen_options(cert))
+        pk.sign_with_ca(identity, principal, ssh_keygen_options(cert), device)
 
     def validate(self):
         parsed = self.parse()
