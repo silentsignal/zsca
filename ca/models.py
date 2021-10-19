@@ -56,7 +56,7 @@ class PublicKey(models.Model):
         h = b64encode(sha256(self.key).digest()).decode()
         return 'SHA256:{0}...{1}'.format(h[:3], h[-3:])
 
-    def sign_with_ca(self, identity, principal, ssh_keygen_options):
+    def sign_with_ca(self, identity, principal, ssh_keygen_options, device=None):
         force_cmd = False
         cmdline_options = []
         for opt in ssh_keygen_options or []:
@@ -79,13 +79,12 @@ class PublicKey(models.Model):
             raise ValueError('principal is mandatory for unattested keys')
         elif not force_cmd:
             raise ValueError('Unattested keys must have forced command')
-        mydevice = OpenPGPpy.OpenPGPcard()
+        mydevice = device or console_openpgp_init()
         sigctr_blob = bytes(mydevice.get_data(SECURITY_SUPPORT_TEMPLATE))
         if len(sigctr_blob) != 7 or not sigctr_blob.startswith(OPGP_SIG_CTR_PREFIX):
             raise ValueError('Invalid reply to signature counter request: ' +
                     repr(sigctr_blob))
         (counter,) = struct.unpack(">I", b"\0" + sigctr_blob[len(OPGP_SIG_CTR_PREFIX):])
-        mydevice.verify_pin(1, getpass.getpass())
         pk = mydevice.get_public_key(SIGNING_KEY)
         if len(pk) != 37 or not pk.startswith(OPGP_ED25519_PREFIX):
             raise ValueError('Only Ed25519 keys are supported')
@@ -132,6 +131,11 @@ class PublicKey(models.Model):
                 raise ValueError('Unsupported command {0}'.format(cmd))
         cert = b64decode((tmpdir / 'subject-cert.pub').read_bytes().split(b" ")[1])
         ca.certificate_set.create(subject=self, cert=cert).validate()
+
+def console_openpgp_init():
+    mydevice = OpenPGPpy.OpenPGPcard()
+    mydevice.verify_pin(1, getpass.getpass())
+    return mydevice
 
 def serialize_openssh(*args, prefix=None):
     payload = b''.join(serialize_openssh_value(arg) for arg in args)
