@@ -56,7 +56,8 @@ class PublicKey(models.Model):
         h = b64encode(sha256(self.key).digest()).decode()
         return 'SHA256:{0}...{1}'.format(h[:3], h[-3:])
 
-    def sign_with_ca(self, identity, principal, ssh_keygen_options, device=None):
+    def sign_with_ca(self, identity, principal, ssh_keygen_options,
+            device=None, renewal_of=None):
         force_cmd = False
         cmdline_options = []
         for opt in ssh_keygen_options or []:
@@ -130,7 +131,8 @@ class PublicKey(models.Model):
             else:
                 raise ValueError('Unsupported command {0}'.format(cmd))
         cert = b64decode((tmpdir / 'subject-cert.pub').read_bytes().split(b" ")[1])
-        ca.certificate_set.create(subject=self, cert=cert).validate()
+        ca.certificate_set.create(subject=self, cert=cert,
+                renewal_of=renewal_of).validate()
 
 def console_openpgp_init():
     mydevice = OpenPGPpy.OpenPGPcard()
@@ -237,6 +239,7 @@ class Certificate(models.Model):
     issuer = models.ForeignKey(CA, on_delete=models.PROTECT)
     subject = models.ForeignKey(PublicKey, on_delete=models.PROTECT)
     cert = models.BinaryField('Certificate')
+    renewal_of = models.ForeignKey('self', null=True, on_delete=models.PROTECT)
 
     def parse(self):
         bio = BytesIO(self.cert)
@@ -281,7 +284,7 @@ class Certificate(models.Model):
         else:
             identity = cert['key_id']
             principal = ','.join(cert['principals'])
-        pk.sign_with_ca(identity, principal, ssh_keygen_options(cert), device)
+        pk.sign_with_ca(identity, principal, ssh_keygen_options(cert), device, self)
 
     def validate(self):
         parsed = self.parse()
