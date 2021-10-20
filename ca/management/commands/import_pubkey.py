@@ -57,7 +57,7 @@ class Command(BaseCommand):
                 else:
                     print(repr(pk) + " stored successfully, certificates for "
                             "this key can be signed using the following command\n\n"
-                            "python manage.py sign_cert")
+                            "python manage.py sign_cert " + str(pk.pk))
             else:
                 if not att_cert:
                     raise ValueError("Providing an X.509 PEM file doesn't "
@@ -84,6 +84,6 @@ class Command(BaseCommand):
                 att.validate()
                 print(repr(pk) + " stored successfully, certificates for "
                         "this key can be signed using the following command\n\n"
-                        "python manage.py sign_cert\n\nYou can also create a "
-                        "CA based on this key by running\n\n"
+                        "python manage.py sign_cert " + str(pk.pk) + "\n\n"
+                        "You can also create a CA based on this key by running\n\n"
                         "python manage.py create_ca " + str(att.pk))
