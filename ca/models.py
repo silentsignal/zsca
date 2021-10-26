@@ -4,6 +4,7 @@ from hashlib import sha256
 from io import BytesIO
 from itertools import islice
 from pathlib import Path
+from shutil import rmtree
 from subprocess import Popen
 from tempfile import mkdtemp
 import getpass, socket, struct
@@ -93,44 +94,47 @@ class PublicKey(models.Model):
         ssh_bytes = serialize_openssh(SSH_ED25519, ed25519bytes)
         ca = CA.objects.get(signer__pubkey__key=ssh_bytes)
         tmpdir = Path(mkdtemp(prefix='zsca-signcert'))
-        tmpfiles = {}
-        for name, source in [('issuer', ca.signer.pubkey), ('subject', self)]:
-            tmpfile = tmpdir / (name + '.pub')
-            tmpfile.write_text(source.ssh_string())
-            tmpfiles[name] = tmpfile
-        ssh_auth_sock = str(tmpdir / 'ssh.sock')
-        env = {'SSH_AUTH_SOCK': ssh_auth_sock}
-        cmdline = ['ssh-keygen', '-Us', str(tmpfiles['issuer']),
-            '-V', '+{0}d'.format(settings.CERT_MAX_DAYS), '-z', str(counter),
-            '-I', identity, '-n', principal] + cmdline_options
-        cmdline.append(str(tmpfiles['subject']))
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.bind(ssh_auth_sock)
-        sock.listen(1)
-        keygen = Popen(cmdline, env=env)
-        connection, client_address = sock.accept()
-        while keygen.poll() is None:
-            msglen = connection.recv(4)
-            if not msglen:
-                continue
-            msg = connection.recv(struct.unpack('>I', msglen)[0])
-            cmd = msg[0]
-            if cmd == SSH_AGENTC_REQUEST_IDENTITIES:
-                response = serialize_openssh([(ssh_bytes, b'')],
-                        prefix=SSH_AGENT_IDENTITIES_ANSWER)
-                connection.sendall(struct.pack('>I', len(response)) + response)
-            elif cmd == SSH_AGENTC_SIGN_REQUEST:
-                (keylen,) = struct.unpack('>I', msg[1:5])
-                (datalen,) = struct.unpack('>I', msg[(1+4+keylen):][:4])
-                data = msg[(1+4+keylen+4):][:datalen]
-                assert 1 + 4 + datalen + 4 + keylen + 4 == len(msg)
-                ed25519sig = mydevice.sign(data)
-                signature = serialize_openssh(SSH_ED25519, ed25519sig)
-                response = serialize_openssh(signature, prefix=SSH_AGENT_SIGN_RESPONSE)
-                connection.sendall(struct.pack('>I', len(response)) + response)
-            else:
-                raise ValueError('Unsupported command {0}'.format(cmd))
-        cert = b64decode((tmpdir / 'subject-cert.pub').read_bytes().split(b" ")[1])
+        try:
+            tmpfiles = {}
+            for name, source in [('issuer', ca.signer.pubkey), ('subject', self)]:
+                tmpfile = tmpdir / (name + '.pub')
+                tmpfile.write_text(source.ssh_string())
+                tmpfiles[name] = tmpfile
+            ssh_auth_sock = str(tmpdir / 'ssh.sock')
+            env = {'SSH_AUTH_SOCK': ssh_auth_sock}
+            cmdline = ['ssh-keygen', '-Us', str(tmpfiles['issuer']),
+                '-V', '+{0}d'.format(settings.CERT_MAX_DAYS), '-z', str(counter),
+                '-I', identity, '-n', principal] + cmdline_options
+            cmdline.append(str(tmpfiles['subject']))
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.bind(ssh_auth_sock)
+            sock.listen(1)
+            keygen = Popen(cmdline, env=env)
+            connection, client_address = sock.accept()
+            while keygen.poll() is None:
+                msglen = connection.recv(4)
+                if not msglen:
+                    continue
+                msg = connection.recv(struct.unpack('>I', msglen)[0])
+                cmd = msg[0]
+                if cmd == SSH_AGENTC_REQUEST_IDENTITIES:
+                    response = serialize_openssh([(ssh_bytes, b'')],
+                            prefix=SSH_AGENT_IDENTITIES_ANSWER)
+                    connection.sendall(struct.pack('>I', len(response)) + response)
+                elif cmd == SSH_AGENTC_SIGN_REQUEST:
+                    (keylen,) = struct.unpack('>I', msg[1:5])
+                    (datalen,) = struct.unpack('>I', msg[(1+4+keylen):][:4])
+                    data = msg[(1+4+keylen+4):][:datalen]
+                    assert 1 + 4 + datalen + 4 + keylen + 4 == len(msg)
+                    ed25519sig = mydevice.sign(data)
+                    signature = serialize_openssh(SSH_ED25519, ed25519sig)
+                    response = serialize_openssh(signature, prefix=SSH_AGENT_SIGN_RESPONSE)
+                    connection.sendall(struct.pack('>I', len(response)) + response)
+                else:
+                    raise ValueError('Unsupported command {0}'.format(cmd))
+            cert = b64decode((tmpdir / 'subject-cert.pub').read_bytes().split(b" ")[1])
+        finally:
+            rmtree(tmpdir)
         signed = ca.certificate_set.create(subject=self, cert=cert,
                 renewal_of=renewal_of)
         signed.validate()
