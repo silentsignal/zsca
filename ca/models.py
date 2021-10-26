@@ -5,8 +5,9 @@ from io import BytesIO
 from itertools import islice
 from pathlib import Path
 from shutil import rmtree
-from subprocess import Popen
+from subprocess import Popen, check_call
 from tempfile import mkdtemp
+from time import time
 import getpass, socket, struct
 
 from cryptography import x509
@@ -49,6 +50,7 @@ class YubiKey(models.Model):
 
 class PublicKey(models.Model):
     key = models.BinaryField('Public key')
+    revoked = models.CharField('Reason for revocation', max_length=100, null=True)
 
     def ssh_string(self):
         return format_ssh_key(self.key)
@@ -223,6 +225,34 @@ class CA(models.Model):
         assert len(set(certs)) == len(certs), (
                 "not all certificates signed by {0!r} are unique".format(self))
 
+    def get_krl(self, update=None):
+        entries = list(self.get_revocation_entries())
+        if not entries:
+            return update
+        tmpdir = Path(mkdtemp(prefix='zsca-cert-krl'))
+        try:
+            krl = tmpdir / 'krl'
+            cmdline = ['ssh-keygen', '-k', '-f', str(krl)]
+            if update:
+                krl.write_bytes(update)
+                cmdline.append('-u')
+            entry_file = tmpdir / 'entries'
+            entry_file.write_text('\n'.join(entries))
+            ca = tmpdir / 'ca'
+            ca.write_text(self.signer.pubkey.ssh_string())
+            check_call(cmdline + ['-s', str(ca), str(entry_file)])
+            return krl.read_bytes()
+        finally:
+            rmtree(tmpdir)
+
+    def get_revocation_entries(self):
+        t = time()
+        for cert in self.certificate_set.exclude(revoked=None):
+            pc = cert.parse()
+            if t > pc['valid_before']:
+                continue # wouldn't be valid anyway
+            yield 'serial: ' + str(pc['serial'])
+
 
 KEY_PARAMS = {
         "ecdsa-sha2-nistp256": 2,
@@ -246,6 +276,7 @@ class Certificate(models.Model):
     subject = models.ForeignKey(PublicKey, on_delete=models.PROTECT)
     cert = models.BinaryField('Certificate')
     renewal_of = models.ForeignKey('self', null=True, on_delete=models.PROTECT)
+    revoked = models.CharField('Reason for revocation', max_length=100, null=True)
 
     def parse(self):
         bio = BytesIO(self.cert)
