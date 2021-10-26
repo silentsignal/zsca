@@ -131,8 +131,10 @@ class PublicKey(models.Model):
             else:
                 raise ValueError('Unsupported command {0}'.format(cmd))
         cert = b64decode((tmpdir / 'subject-cert.pub').read_bytes().split(b" ")[1])
-        ca.certificate_set.create(subject=self, cert=cert,
-                renewal_of=renewal_of).validate()
+        signed = ca.certificate_set.create(subject=self, cert=cert,
+                renewal_of=renewal_of)
+        signed.validate()
+        return signed
 
 def console_openpgp_init():
     mydevice = OpenPGPpy.OpenPGPcard()

@@ -15,4 +15,6 @@ class Command(BaseCommand):
                 metavar='ssh-keygen_option', action='append')
 
     def handle(self, pubkey_id, identity, principal, ssh_keygen_options, *args, **options):
-        PublicKey.objects.get(pk=pubkey_id).sign_with_ca(identity, principal, ssh_keygen_options)
+        signed = PublicKey.objects.get(pk=pubkey_id).sign_with_ca(
+                identity, principal, ssh_keygen_options)
+        print(signed.ssh_string())
