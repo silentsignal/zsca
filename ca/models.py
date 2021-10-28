@@ -295,9 +295,9 @@ class Certificate(models.Model):
         cert_type = read_struct(bio, '>I')
         key_id = read_ssh_string(bio).decode()
         principals = [p.decode() for p in read_ssh_string_list(bio)]
-        valid_after = read_struct(bio, '>Q')
+        valid_after  = read_struct(bio, '>Q')
         valid_before = read_struct(bio, '>Q')
-        crit_opts =  read_dict(bio)
+        crit_opts  = read_dict(bio)
         extensions = read_dict(bio)
         reserved = read_ssh_string(bio)
         signature_key = read_ssh_string(bio)
