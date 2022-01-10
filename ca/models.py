@@ -1,4 +1,5 @@
 from base64 import b64decode, b64encode
+from datetime import datetime
 from functools import partial
 from hashlib import sha256
 from io import BytesIO
@@ -312,6 +313,24 @@ class Certificate(models.Model):
                 "extensions": extensions, "reserved": reserved, "tbs": tbs,
                 "signature_key": signature_key, "signature": signature,
                 }
+
+    def status(self):
+        if self.revoked:
+            return f'Certificate revoked: {self.revoked}'
+        if self.subject.revoked:
+            return f'Key revoked: {self.subject.revoked}'
+        t = time()
+        p = self.parse()
+        if p["valid_after"] > t:
+            return f'Not yet valid, will be from {datetime.fromtimestamp(p["valid_after"])}'
+        vb = p["valid_before"]
+        expiration = datetime.fromtimestamp(vb)
+        if vb < t:
+            return f'Expired at {expiration}'
+        r = self.issuer.signer.pubkey.revoked
+        if r:
+            return f'CA revoked: {r}'
+        return f'Valid until {expiration} ({int((vb-t)//3600//24)} day(s))'
 
     def renew(self, device=None):
         cert = self.parse()

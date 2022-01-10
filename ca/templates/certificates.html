@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<title>Zero trust SSH CA</title>
+	</head>
+	<body>
+		<h1>Zero trust SSH CA</h1>
+		<h2>Certificates</h2>
+		<form action="" method="POST">
+			{% csrf_token %}
+			<table>
+				<thead>
+					<tr>
+						<th></th>
+						<th>ID</th>
+						<th>CA</th>
+						<th>Srl</th>
+						<th>Key ID</th>
+						<th>Subject</th>
+						<th>Status</th>
+						<th></th>
+					</tr>
+				</thead>
+				<tbody>
+					{% for certificate in certificates %}
+					{% with parsed=certificate.parse %}
+					<tr>
+						<td><input type="checkbox" id="c{{ certificate.pk }}" value="{{ certificate.pk }}" name="cert_id"></td>
+						<td style="text-align: right">{{ certificate.pk }}</td>
+						<td>CA{{ certificate.issuer.pk }}</td>
+						<td style="text-align: right">{{ parsed.serial }}</td>
+						<td><label for="c{{ certificate.pk }}">{{ parsed.key_id }}</label></td>
+						<td><code>{{ certificate.subject }}</code></td>
+						<td>{{ certificate.status }}</td>
+						<td><a href="{% url "export_certificate" certificate.pk %}">Export</a></td>
+					</tr>
+					{% endwith %}
+					{% endfor %}
+				</tbody>
+			</table>
+			<h3>Revoke certificates</h3>
+			<label for="cert_revoke_reason">Reason:</label>
+			<input type="text" name="reason" id="cert_revoke_reason">
+			<input type="submit" name="revoke" value="Revoke selected">
+			<h3>Renew certificates</h3>
+			<label for="cert_renew_password">Password:</label>
+			<input type="password" name="password" id="cert_renew_password">
+			<input type="submit" name="renew" value="Renew selected">
+		</form>
+	</body>
+</html>
