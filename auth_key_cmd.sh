@@ -8,7 +8,7 @@
 # Don't forget to chmod it so that all parents are both writable only
 # and owned by root, otherwise it won't be executed.
 
-if [ "specal-username-comes-here" = "$2" ]; then
+if [ "special-username-comes-here" = "$2" ]; then
 	cd /path/to/zsca
 	. ../venv/bin/activate
 	python manage.py latest_cert_for_pubkey $1
