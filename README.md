@@ -17,7 +17,7 @@ presumes you have an Ed25519 keypair in the OpenPGP applet of the YubiKey
 	...
 	Enter PIN: <...>
 
-(it might also as whether you want to overwrite certificate in that slot, but that's okay, just answer y)
+(it might also ask whether you want to overwrite certificate in that slot, but that's okay, just answer `y`)
 
 	$ ykman openpgp export-certificate att att-attest.pem
 	...
