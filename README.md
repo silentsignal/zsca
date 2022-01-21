@@ -2,7 +2,8 @@ Zero Trust SSH CA
 =================
 
 Experimental state, expect bugs, here's a quick demo setup, which already
-presumes you have an Ed25519 keypair in the OpenPGP applet of the YubiKey,
+presumes you have an Ed25519 keypair in the OpenPGP applet of the YubiKey
+(see a detailed HOWTO at the end of this README),
 `ykman` is installed in `$PATH`, and you are in a Python 3.5+ environment.
 
 	$ git clone https://github.com/silentsignal/zsca
