@@ -43,7 +43,6 @@ SSH_AGENT_SIGN_RESPONSE = 14
 
 class YubiKey(models.Model):
     serial = models.PositiveIntegerField('Serial number', primary_key=True)
-    user = models.ForeignKey(User, on_delete=models.PROTECT)
 
     def __str__(self):
         return str(self.serial)
@@ -74,10 +73,10 @@ class PublicKey(models.Model):
                 raise ValueError("identity doesn't make sense for attested keys, would be overwritten")
             if principal:
                 raise ValueError("principal doesn't make sense for attested keys, would be overwritten")
-            yk = self.attestation.yubikey
-            email = yk.user.email
+            att = self.attestation
+            email = att.user.email
             principal = email
-            identity = '{0} YK#{1}'.format(email, yk.serial)
+            identity = '{0} YK#{1}'.format(email, att.yubikey.serial)
         elif not identity:
             raise ValueError('identity is mandatory for unattested keys')
         elif not principal:
@@ -166,6 +165,7 @@ def serialize_openssh_value(value):
 class Attestation(models.Model):
     pubkey = models.OneToOneField(PublicKey, on_delete=models.PROTECT)
     yubikey = models.ForeignKey(YubiKey, on_delete=models.PROTECT)
+    user = models.ForeignKey(User, on_delete=models.PROTECT)
     intermediate_cert = models.BinaryField('Intermediate attestation certificate')
     leaf_cert = models.BinaryField('Attestation statement / leaf certificate')
 
@@ -362,7 +362,7 @@ class Certificate(models.Model):
             att = sub.attestation
             att.validate()
             pp = parsed['principals']
-            email = att.yubikey.user.email
+            email = att.user.email
             assert [email] == pp, (
                     "{0!r} has incorrect principals: {1!r}".format(self, pp))
             kid = parsed['key_id']

@@ -28,7 +28,7 @@ class Command(BaseCommand):
         parser.add_argument(
                 '--user-email',
                 metavar='user@example.com',
-                help='Create a new YubiKey using the specified email address',
+                help='Assign user by email address',
                 )
 
     def handle(self, *args, **options):
@@ -68,18 +68,15 @@ class Command(BaseCommand):
                 try:
                     yk = YubiKey.objects.get(serial=serial)
                 except YubiKey.DoesNotExist:
-                    email = options['user_email']
-                    if email:
-                        yk = YubiKey.objects.create(serial=serial,
-                                user=User.objects.get(email=email))
-                    else:
-                        raise ValueError(("YubiKey {0} does not exist, yet it "
-                            "was included in the attestation certificate. "
-                            "Use the --user-email argument to select which "
-                            "user to associate with the new YubiKey.").format(serial))
+                    yk = YubiKey.objects.create(serial=serial)
+                email = options['user_email']
+                if email:
+                    user = User.objects.get(email=email)
+                else:
+                    user = Attestation.objects.filter(yubikey=yk).order_by('pk').last()
                 (icert_der, cert_der) = (c.public_bytes(
                     encoding=serialization.Encoding.DER) for c in [icert, cert])
-                att = Attestation.objects.create(pubkey=pk, yubikey=yk,
+                att = Attestation.objects.create(pubkey=pk, yubikey=yk, user=user,
                         intermediate_cert=icert_der, leaf_cert=cert_der)
                 att.validate()
                 print(repr(pk) + " stored successfully, certificates for "
