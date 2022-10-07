@@ -95,9 +95,9 @@ et al) that also offers attestation, which ZSCA can consume just
 like with OpenPGP keys. In this case, the following commands can be used,
 assuming you already have `ykman` installed as described above for OpenPGP.
 
-	$ ykman piv attest 9a sig-attest.pem
+	$ ykman piv keys attest 9a sig-attest.pem
 	...
-	$ ykman piv export-certificate f9 att-attest.pem
+	$ ykman piv certificates export f9 att-attest.pem
 	...
 	$ python manage.py import_pubkey --user-email vsza@silentsignal.hu --attested-by att-attest.pem sig-attest.pem
 	<PublicKey: SHA256:zhB...iA=> stored successfully, certificates for this key can be signed using the following command
