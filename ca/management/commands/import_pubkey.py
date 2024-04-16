@@ -49,7 +49,10 @@ class Command(BaseCommand):
             ssh_raw = b64decode(ssh_b64)
             inner_type = read_ssh_string(BytesIO(ssh_raw))
             assert ssh_type == inner_type, "{0!r} != {1!r}".format(ssh_type, inner_type)
-            pk = PublicKey.objects.create(key=ssh_raw)
+            try:
+                pk = PublicKey.objects.get(key=ssh_raw)
+            except PublicKey.DoesNotExist:
+                pk = PublicKey.objects.create(key=ssh_raw)
             if cert is None:
                 if att_cert:
                     raise ValueError("The --attested-by option is incompatible "
