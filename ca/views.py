@@ -1,5 +1,7 @@
+from django.core.mail import EmailMessage
 from django.http import HttpResponse
 from django.shortcuts import render, get_object_or_404, redirect
+from django.template.loader import render_to_string
 
 import OpenPGPpy
 
@@ -29,3 +31,9 @@ def export_certificate(request, pk):
     return HttpResponse(
             get_object_or_404(Certificate, pk=pk).ssh_string().encode('utf-8'),
             content_type='text/plain')
+
+def email_certificate(user, cert):
+    ctx = {"user": user, "cert": cert}
+    EmailMessage(to=[user.email],
+                subject='SSH certificate',
+                body=render_to_string('certmail.txt', ctx)).send()

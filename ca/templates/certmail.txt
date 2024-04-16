@@ -1,0 +1,8 @@
+Dear {{ user.first_name }},{% if cert.renewal_of %}
+the status of your current SSH certificate: {{ cert.renewal_of.status }}{% endif %}
+your new SSH certificate can be found below:
+
+{{ cert.ssh_string }}
+
+Regards,
+ZSCA
