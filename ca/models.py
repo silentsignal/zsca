@@ -383,6 +383,22 @@ class Certificate(models.Model):
         return "{0} signed by {1}, serial {2}".format(self.subject,
                 self.issuer.signer.pubkey, parsed['serial'])
 
+
+class SftpDeployment(models.Model):
+    certificate = models.ForeignKey(Certificate, on_delete=models.PROTECT)
+    hostname = models.CharField("Hostname", max_length=255)
+    path = models.CharField("Path", max_length=255)
+
+    def deploy(self, certificate):
+        tmpdir = Path(mkdtemp(prefix='zsca-signcert'))
+        try:
+            tmpcert = tmpdir / 'cert.pub'
+            tmpcert.write_text(certificate.ssh_string())
+            check_call(['scp', str(tmpcert), f'{self.hostname}:{self.path}'])
+        finally:
+            rmtree(tmpdir)
+
+
 def ssh_keygen_options(cert):
     crit_opts = cert['crit_opts']
     for key in [FORCE_COMMAND, SOURCE_ADDRESS]:
