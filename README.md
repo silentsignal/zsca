@@ -56,6 +56,14 @@ presumes you have an Ed25519 keypair in the OpenPGP applet of the YubiKey
 	$ python manage.py trusted_ca_list
 	ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPc25bfttB6URNpvMB2pvr2mo25ux8rWusU0MWH8begS
 
+Note: if signing results in the error message
+
+    smartcard.Exceptions.CardConnectionException: Failed to transmit with protocol T1. Transaction failed.: Transaction failed. (0x80100016)
+    ...
+    OpenPGPpy.openpgp_card.ConnectionException: Error while communicating with the OpenGPG device.
+
+on macOS Sonoma, [Ludovic Rousseau's blog post][2] might help by switching from the buggy built-in CCID driver to his IFD CCID driver (also included in the OS).
+
 Now you can set the following in your `ssh_config`
 
 	Host foo
@@ -105,3 +113,4 @@ assuming you already have `ykman` installed as described above for OpenPGP.
 
 
 [1]: https://github.com/FiloSottile/yubikey-agent
+[2]: https://blog.apdu.fr/posts/2023/11/apple-own-ccid-driver-in-sonoma/
